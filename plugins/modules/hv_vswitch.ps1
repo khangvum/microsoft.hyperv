@@ -145,7 +145,13 @@ try {
             $module.FailJson("Cannot change 'enable_iov' on an existing switch (current: $($vswitch.IovEnabled)). " +
                 "SR-IOV mode is fixed at creation time - set state=absent then present to recreate the switch.")
         }
-        if ($null -ne $minimum_bandwidth_mode -and $minimum_bandwidth_mode -ne $vswitch.MinimumBandwidthMode.ToString()) {
+        $current_bandwidth_mode = if ($null -ne $vswitch.MinimumBandwidthMode) {
+            $vswitch.MinimumBandwidthMode.ToString()
+        }
+        else {
+            ""
+        }
+        if ($null -ne $minimum_bandwidth_mode -and $minimum_bandwidth_mode -ne $current_bandwidth_mode) {
             $module.FailJson("Cannot change 'minimum_bandwidth_mode' on an existing switch (current: $($vswitch.MinimumBandwidthMode)). " +
                 "This is fixed at creation time - set state=absent then present to recreate the switch.")
         }
