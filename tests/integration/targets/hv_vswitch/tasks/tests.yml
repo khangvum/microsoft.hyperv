@@ -27,7 +27,34 @@
     that:
       - result_private_idem.changed == false
 
-# 2. Internal Switch creation
+# 2. Creation-only property validation
+- name: Reject changing minimum bandwidth mode
+  microsoft.hyperv.hv_vswitch:
+    name: "{{ test_vswitch_private }}"
+    minimum_bandwidth_mode: Weight
+  register: result_bandwidth_change
+  ignore_errors: true
+
+- name: Assert minimum bandwidth mode is immutable
+  assert:
+    that:
+      - result_bandwidth_change.failed == true
+      - result_bandwidth_change.msg is search("Cannot change 'minimum_bandwidth_mode'")
+
+- name: Reject changing IOV state
+  microsoft.hyperv.hv_vswitch:
+    name: "{{ test_vswitch_private }}"
+    enable_iov: true
+  register: result_iov_change
+  ignore_errors: true
+
+- name: Assert IOV state is immutable
+  assert:
+    that:
+      - result_iov_change.failed == true
+      - result_iov_change.msg is search("Cannot change 'enable_iov'")
+
+# 3. Internal Switch creation
 - name: Create Internal Virtual Switch
   microsoft.hyperv.hv_vswitch:
     name: "{{ test_vswitch_internal }}"
@@ -44,7 +71,7 @@
       - result_internal_create.allow_management_os == true
       - result_internal_create.minimum_bandwidth_mode == 'None'
 
-# 3. Extension management
+# 4. Extension management
 - name: Get a sample extension name
   ansible.windows.win_powershell:
     script: |
@@ -86,9 +113,165 @@
       assert:
         that:
           - result_ext_back.changed == true
+
+    - name: Repeat extension state (idempotency check)
+      microsoft.hyperv.hv_vswitch:
+        name: "{{ test_vswitch_private }}"
+        extensions:
+          - name: "{{ sample_extension.Name }}"
+            state: "{{ sample_extension.Enabled | ternary('enabled', 'disabled') }}"
+      register: result_ext_idem
+
+    - name: Assert extension idempotency
+      assert:
+        that:
+          - result_ext_idem.changed == false
   when: sample_extension.Name is defined
 
-# 4. Check Mode removal
+# 5. Unknown extension validation
+- name: Reject an unknown extension
+  microsoft.hyperv.hv_vswitch:
+    name: "{{ test_vswitch_private }}"
+    extensions:
+      - name: "AnsibleTest_MissingExtension_{{ 99999 | random }}"
+        state: enabled
+  register: result_missing_extension
+  ignore_errors: true
+
+- name: Assert unknown extension is rejected
+  assert:
+    that:
+      - result_missing_extension.failed == true
+      - result_missing_extension.msg is search("Extension 'AnsibleTest_MissingExtension_")
+
+# 6. External switch adapter resolution
+- name: Find an available physical network adapter
+  ansible.windows.win_powershell:
+    script: |
+      $bound_descriptions = @(
+          Get-VMSwitch | ForEach-Object { $_.NetAdapterInterfaceDescriptions }
+      )
+      $adapter = Get-NetAdapter -Physical |
+          Where-Object Status -eq "Up" |
+          Where-Object InterfaceDescription -notin $bound_descriptions |
+          Select-Object -First 1
+      if ($adapter) {
+          $adapter.Name
+      }
+  register: physical_adapter_raw
+
+- name: Set physical adapter fact
+  set_fact:
+    test_vswitch_adapter: "{{ physical_adapter_raw.output[0] | trim }}"
+  when: physical_adapter_raw.output | length > 0
+
+- name: Create External Virtual Switch (if an adapter exists)
+  microsoft.hyperv.hv_vswitch:
+    name: "{{ test_vswitch_external }}"
+    switch_type: external
+    net_adapter_names:
+      - "{{ test_vswitch_adapter }}"
+  register: result_external_create
+  when: test_vswitch_adapter is defined
+
+- name: Assert External Virtual Switch creation
+  assert:
+    that:
+      - result_external_create.changed == true
+      - result_external_create.switch_type == 'External'
+  when: test_vswitch_adapter is defined
+
+- name: Reconcile External Virtual Switch (idempotency)
+  microsoft.hyperv.hv_vswitch:
+    name: "{{ test_vswitch_external }}"
+    switch_type: external
+    net_adapter_names:
+      - "{{ test_vswitch_adapter }}"
+  register: result_external_idem
+  when: test_vswitch_adapter is defined
+
+- name: Assert External Virtual Switch idempotency
+  assert:
+    that:
+      - result_external_idem.changed == false
+  when: test_vswitch_adapter is defined
+
+- name: Reject changing enable_embedded_teaming on existing switch
+  microsoft.hyperv.hv_vswitch:
+    name: "{{ test_vswitch_external }}"
+    enable_embedded_teaming: true
+  register: result_teaming_change
+  ignore_errors: true
+  when: test_vswitch_adapter is defined
+
+- name: Assert enable_embedded_teaming is immutable
+  assert:
+    that:
+      - result_teaming_change.failed == true
+      - result_teaming_change.msg is search("Cannot change 'enable_embedded_teaming'")
+  when: test_vswitch_adapter is defined
+
+# 7. IOV creation (if a capable adapter exists)
+- name: Find an SR-IOV capable physical network adapter
+  ansible.windows.win_powershell:
+    script: |
+      $bound_descriptions = @(
+          Get-VMSwitch | ForEach-Object { $_.NetAdapterInterfaceDescriptions }
+      )
+      if (Get-Command Get-NetAdapterSriov -ErrorAction SilentlyContinue) {
+          $adapter = Get-NetAdapter -Physical |
+              Where-Object Status -eq "Up" |
+              Where-Object InterfaceDescription -notin $bound_descriptions |
+              ForEach-Object {
+                  $sriov = Get-NetAdapterSriov -Name $_.Name -ErrorAction SilentlyContinue
+                  if ($sriov.SriovSupport) {
+                      $_
+                      break
+                  }
+              }
+          if ($adapter) {
+              $adapter.Name
+          }
+      }
+  register: iov_adapter_raw
+
+- name: Set SR-IOV adapter fact
+  set_fact:
+    test_iov_adapter: "{{ iov_adapter_raw.output[0] | trim }}"
+  when: iov_adapter_raw.output | length > 0
+
+- name: Create SR-IOV Virtual Switch (if supported)
+  microsoft.hyperv.hv_vswitch:
+    name: "{{ test_vswitch_iov }}"
+    switch_type: external
+    net_adapter_names:
+      - "{{ test_iov_adapter }}"
+    enable_iov: true
+  register: result_iov_create
+  when: test_iov_adapter is defined
+
+- name: Assert SR-IOV Virtual Switch creation
+  assert:
+    that:
+      - result_iov_create.changed == true
+      - result_iov_create.enable_iov == true
+  when: test_iov_adapter is defined
+
+# 8. Check Mode validation
+- name: Create Private Switch (check mode)
+  microsoft.hyperv.hv_vswitch:
+    name: "AnsibleTest_CheckCreate_{{ 99999 | random }}"
+    switch_type: private
+    state: present
+  check_mode: true
+  register: result_check_create
+
+- name: Assert check mode creation
+  assert:
+    that:
+      - result_check_create.changed == true
+      - result_check_create.switch_type == 'private'
+
 - name: Remove switch (check mode)
   microsoft.hyperv.hv_vswitch:
     name: "{{ test_vswitch_internal }}"
@@ -102,7 +285,7 @@
       - result_check_absent.changed == true
       - result_check_absent.state == 'absent'
 
-# 5. Actual removal
+# 9. Actual removal
 - name: Remove internal switch
   microsoft.hyperv.hv_vswitch:
     name: "{{ test_vswitch_internal }}"

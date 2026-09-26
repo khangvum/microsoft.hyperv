@@ -3,6 +3,8 @@
   set_fact:
     test_vswitch_private: "AnsibleTest_Private_{{ 99999 | random }}"
     test_vswitch_internal: "AnsibleTest_Internal_{{ 99999 | random }}"
+    test_vswitch_external: "AnsibleTest_External_{{ 99999 | random }}"
+    test_vswitch_iov: "AnsibleTest_IOV_{{ 99999 | random }}"
 
 - name: Run hv_vswitch integration tests
   block:
@@ -17,4 +19,6 @@
       loop:
         - "{{ test_vswitch_private }}"
         - "{{ test_vswitch_internal }}"
+        - "{{ test_vswitch_external }}"
+        - "{{ test_vswitch_iov }}"
       ignore_errors: true
