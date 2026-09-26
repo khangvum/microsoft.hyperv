@@ -7,19 +7,19 @@
 #AnsibleRequires -PowerShell ansible_collections.microsoft.hyperv.plugins.module_utils.HyperV
 
 $spec = @{
-    options             = @{
-        name                                    = @{ type = "str"; required = $true }
-        state                                   = @{ type = "str"; default = "present"; choices = @("present", "absent") }
-        switch_type                             = @{ type = "str"; choices = @("external", "internal", "private") }
-        net_adapter_names                       = @{ type = "list"; elements = "str" }
-        allow_management_os                     = @{ type = "bool" }
-        enable_embedded_teaming                 = @{ type = "bool" }
-        enable_iov                              = @{ type = "bool" }
-        minimum_bandwidth_mode                  = @{ type = "str"; choices = @("None", "Absolute", "Weight", "Default") }
+    options = @{
+        name = @{ type = "str"; required = $true }
+        state = @{ type = "str"; default = "present"; choices = @("present", "absent") }
+        switch_type = @{ type = "str"; choices = @("external", "internal", "private") }
+        net_adapter_names = @{ type = "list"; elements = "str" }
+        allow_management_os = @{ type = "bool" }
+        enable_embedded_teaming = @{ type = "bool" }
+        enable_iov = @{ type = "bool" }
+        minimum_bandwidth_mode = @{ type = "str"; choices = @("None", "Absolute", "Weight", "Default") }
         default_flow_minimum_bandwidth_absolute = @{ type = "raw" }
-        default_flow_minimum_bandwidth_weight   = @{ type = "int" }
-        notes                                   = @{ type = "str" }
-        extensions                              = @{ type = "list"; elements = "dict" }
+        default_flow_minimum_bandwidth_weight = @{ type = "int" }
+        notes = @{ type = "str" }
+        extensions = @{ type = "list"; elements = "dict" }
     }
     supports_check_mode = $true
 }
@@ -35,7 +35,6 @@ $enable_embedded_teaming = $module.Params.enable_embedded_teaming
 $enable_iov = $module.Params.enable_iov
 $minimum_bandwidth_mode = $module.Params.minimum_bandwidth_mode
 $default_flow_minimum_bandwidth_absolute = $module.Params.default_flow_minimum_bandwidth_absolute
-$default_flow_minimum_bandwidth_weight = $module.Params.default_flow_minimum_bandwidth_weight
 $notes = $module.Params.notes
 $extensions = $module.Params.extensions
 
@@ -133,7 +132,7 @@ try {
     }
     else {
         $vType = $vswitch.SwitchType.ToString().ToLower()
-        if ($null -ne $switch_type -and 
+        if ($null -ne $switch_type -and
             $vType -ne $switch_type.ToLower()) {
             $msg = "Cannot change switch_type. Current: $($vswitch.SwitchType)"
             $module.FailJson($msg)
@@ -159,17 +158,17 @@ try {
         # compared apples-to-apples against $vswitch.NetAdapterInterfaceDescriptions.
         if ($vType -eq "external" -and $null -ne $net_adapter_names -and $net_adapter_names.Count -gt 0) {
             foreach ($an in $net_adapter_names) {
-                $matches = @(Get-NetAdapter -Name $an -ErrorAction SilentlyContinue)
-                if ($matches.Count -eq 0) {
+                $adapter_matches = @(Get-NetAdapter -Name $an -ErrorAction SilentlyContinue)
+                if ($adapter_matches.Count -eq 0) {
                     $module.FailJson("Network adapter '$an' was not found on this host.")
                 }
-                if ($matches.Count -gt 1) {
-                    $module.FailJson("Network adapter name '$an' is ambiguous - $($matches.Count) adapters matched on this host.")
+                if ($adapter_matches.Count -gt 1) {
+                    $module.FailJson("Network adapter name '$an' is ambiguous - $($adapter_matches.Count) adapters matched on this host.")
                 }
                 # Force a plain string: without this, an ambiguous/array-shaped result
                 # could silently nest inside the array via '+=' and make the join-based
                 # comparison below never match, permanently reporting false drift.
-                $resolved_adapter_descriptions += [string]$matches[0].InterfaceDescription
+                $resolved_adapter_descriptions += [string]$adapter_matches[0].InterfaceDescription
             }
 
             $current_descriptions = @([string[]]$vswitch.NetAdapterInterfaceDescriptions | Sort-Object)
@@ -177,12 +176,14 @@ try {
             $adapter_changed = (($current_descriptions -join ",") -ne ($desired_descriptions -join ","))
 
             if ($adapter_changed) {
-                $module.Warn("net_adapter_names drift detected for '$name': current=[$($current_descriptions -join ', ')] desired=[$($desired_descriptions -join ', ')]")
+                $module.Warn("net_adapter_names drift detected for '$name': " +
+                    "current=[$($current_descriptions -join ', ')] " +
+                    "desired=[$($desired_descriptions -join ', ')]")
             }
         }
 
         $changed = (Test-HyperVPropertiesChanged -PropertyMap $diffMap -CurrentObject $vswitch `
-            -AnsibleParams $module.Params -SwitchType $vswitch.SwitchType.ToString()) -or $adapter_changed
+                -AnsibleParams $module.Params -SwitchType $vswitch.SwitchType.ToString()) -or $adapter_changed
 
         if ($null -ne $extensions) {
             $current_extensions = @(Get-VMSwitchExtension -VMSwitchName $name)
@@ -282,7 +283,8 @@ try {
             $set_params = @{
                 Name = $name
             }
-            $set_params += Get-HyperVParametersFromMap -PropertyMap $diffMap -AnsibleParams $module.Params -SwitchType $vswitch.SwitchType.ToString()
+            $set_params += Get-HyperVParametersFromMap -PropertyMap $diffMap `
+                -AnsibleParams $module.Params -SwitchType $vswitch.SwitchType.ToString()
 
             if ($adapter_changed) {
                 if ($resolved_adapter_descriptions.Count -ne 1) {
