@@ -1,0 +1,4 @@
+bugfixes:
+  - hv_vswitch - fixed idempotency check and adapter resolution when updating existing virtual switches.
+minor_changes:
+  - hv_vswitch - added support for SR-IOV configuration and extension validation.
