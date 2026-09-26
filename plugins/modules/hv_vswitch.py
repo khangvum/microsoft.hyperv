@@ -13,7 +13,7 @@ description:
   - Create, manage, and remove Hyper-V Virtual Switches.
   - Supports External, Internal, and Private switch types.
   - Manage Virtual Switch Extensions (Enable/Disable).
-  - Configure advanced properties like bandwidth mode and teaming.
+  - Configure advanced properties like bandwidth mode, IOV, and teaming.
 options:
   name:
     description:
@@ -37,6 +37,10 @@ options:
     description:
       - A list of physical network adapter names to bind to an external switch.
       - Required when C(switch_type=external).
+      - Adapter names are resolved to their interface descriptions when checking
+        or changing an existing external switch.
+      - Changing an existing switch to multiple adapters is not supported; recreate
+        the switch with C(state=absent) followed by C(state=present) instead.
     type: list
     elements: str
   allow_management_os:
@@ -48,10 +52,23 @@ options:
     description:
       - Whether to enable Switch Embedded Teaming (SET).
       - Only valid for External switches.
+      - This setting can only be configured when the switch is created.
+      - Recreate the switch with C(state=absent) followed by C(state=present) to
+        change this setting.
+    type: bool
+  enable_iov:
+    description:
+      - Whether to enable single-root I/O virtualization (SR-IOV) on the switch.
+      - This setting can only be configured when the switch is created.
+      - Recreate the switch with C(state=absent) followed by C(state=present) to
+        change this setting.
     type: bool
   minimum_bandwidth_mode:
     description:
       - The minimum bandwidth mode of the switch.
+      - This setting can only be configured when the switch is created.
+      - Recreate the switch with C(state=absent) followed by C(state=present) to
+        change this setting.
     type: str
     choices: [ None, Absolute, Weight, Default ]
   default_flow_minimum_bandwidth_absolute:
@@ -102,6 +119,14 @@ EXAMPLES = r'''
     allow_management_os: true
     enable_embedded_teaming: true
 
+- name: Create an External Virtual Switch with SR-IOV
+  microsoft.hyperv.hv_vswitch:
+    name: IovSwitch
+    switch_type: external
+    net_adapter_names:
+      - "Ethernet 1"
+    enable_iov: true
+
 - name: Enable an extension on a switch
   microsoft.hyperv.hv_vswitch:
     name: PublicSwitch
@@ -141,6 +166,11 @@ allow_management_os:
     returned: success
     type: bool
     sample: true
+enable_iov:
+  description: Whether SR-IOV is enabled on the virtual switch.
+  returned: success
+  type: bool
+  sample: true
 minimum_bandwidth_mode:
     description: The minimum bandwidth mode of the switch.
     returned: success
