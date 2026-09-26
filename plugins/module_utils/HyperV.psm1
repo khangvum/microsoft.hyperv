@@ -78,6 +78,7 @@ Function Get-HyperVParametersFromMap {
     process {
         $outParams = @{}
         foreach ($map in $PropertyMap) {
+            if ($map.Immutable) { continue }    # Skip immutable properties that cannot be changed after creation
             $paramValue = $AnsibleParams.($map.Param)
             if ($null -eq $paramValue) { continue }
 
